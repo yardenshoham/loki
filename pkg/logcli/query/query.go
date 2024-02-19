@@ -55,6 +55,7 @@ type Query struct {
 	LocalConfig            string
 	FetchSchemaFromStorage bool
 	SchemaStore            string
+	progress               *progress
 
 	// Parallelization parameters.
 
@@ -155,6 +156,9 @@ func (q *Query) DoQuery(c client.Client, out output.LogOutput, statistics bool) 
 			if err != nil {
 				log.Fatalf("Query failed: %+v", err)
 			}
+
+			// update progress state
+			q.progress.earliestEndQueried = minTime(q.progress.earliestEndQueried, end)
 
 			if statistics {
 				result.PrintStats(resp.Data.Statistics)
@@ -365,10 +369,30 @@ func (q *Query) startWorkers(
 	return &wg
 }
 
+type progress struct {
+	earliestEndQueried time.Time
+	start              time.Time
+	end                time.Time
+}
+
+func (q *Query) GetProgress() int {
+	totalDuration := q.progress.end.Sub(q.progress.start)
+	progressDuration := q.progress.end.Sub(q.progress.earliestEndQueried)
+
+	if totalDuration == 0 {
+		return 0.0 // Avoid division by zero
+	}
+
+	percentage := float32(progressDuration) / float32(totalDuration)
+	return 1 + int(percentage*100)
+}
+
 func (q *Query) DoQueryParallel(c client.Client, out output.LogOutput, statistics bool) {
 	if q.ParallelDuration < 1 {
 		log.Fatalf("Parallel duration has to be a positive value\n")
 	}
+
+	q.progress = &progress{start: q.Start, end: q.End, earliestEndQueried: q.End}
 
 	jobs := q.parallelJobs()
 
