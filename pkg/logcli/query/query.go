@@ -152,9 +152,23 @@ func (q *Query) DoQuery(c client.Client, out output.LogOutput, statistics bool) 
 				// correct amount of new logs knowing there will be some overlapping logs returned.
 				bs = q.Limit - total + len(lastEntry)
 			}
-			resp, err = c.QueryRange(q.QueryString, bs, start, end, d, q.Step, q.Interval, q.Quiet)
+			maxRetries := 5
+			retryDelay := time.Second * 5
+
+			for attempts := 0; attempts < maxRetries; attempts++ {
+				resp, err = c.QueryRange(q.QueryString, bs, start, end, d, q.Step, q.Interval, q.Quiet)
+				if err == nil {
+					break // Success, exit the loop
+				}
+
+				// Log the error and wait before retrying
+				log.Printf("Attempt %d: Query failed: %+v", attempts+1, err)
+				time.Sleep(retryDelay)
+			}
+
+			// Check if all attempts failed
 			if err != nil {
-				log.Fatalf("Query failed: %+v", err)
+				log.Fatalf("After %d attempts, Query failed: %+v", maxRetries, err)
 			}
 
 			// update progress state
